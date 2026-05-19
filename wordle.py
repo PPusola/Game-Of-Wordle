@@ -7,34 +7,35 @@ import time
 import urllib.request
 from dictionary import ScrabbleDict
 
-WORDS_URL  = 'https://raw.githubusercontent.com/tabatkins/wordle-list/main/words'
-CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'words_cache.txt')
-CACHE_TTL  = 7 * 24 * 3600  # 7 days in seconds
+ANSWERS_URL  = 'https://raw.githubusercontent.com/cfreshman/wordle-nyt-answers-alphabetical/main/answers.txt'
+WORDS_URL    = 'https://raw.githubusercontent.com/tabatkins/wordle-list/main/words'
+ANSWERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'answers_cache.txt')
+WORDS_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'words_cache.txt')
+CACHE_TTL    = 7 * 24 * 3600  # 7 days in seconds
 
 
-def ensure_word_list():
-    '''
-    Returns the path to a local word list file.
-    Downloads from WORDS_URL if the cache is missing or older than 7 days.
-    Falls back to the existing cache if the download fails.
-    '''
-    cache_age   = time.time() - os.path.getmtime(CACHE_FILE) if os.path.exists(CACHE_FILE) else float('inf')
-    needs_fetch = cache_age > CACHE_TTL
-
-    if needs_fetch:
-        print('Updating word list...', end=' ', flush=True)
+def _fetch_if_stale(url, cache_path, label):
+    '''Downloads url to cache_path if missing or older than CACHE_TTL.'''
+    age = time.time() - os.path.getmtime(cache_path) if os.path.exists(cache_path) else float('inf')
+    if age > CACHE_TTL:
+        print(f'Updating {label}...', end=' ', flush=True)
         try:
-            urllib.request.urlretrieve(WORDS_URL, CACHE_FILE)
+            urllib.request.urlretrieve(url, cache_path)
             print('Done.')
         except Exception as e:
-            if os.path.exists(CACHE_FILE):
-                print(f'Could not reach server, using cached list. ({e})')
-            else:
-                raise RuntimeError(
-                    f'No cached word list and download failed: {e}\n'
-                    'Check your internet connection and try again.'
-                )
-    return CACHE_FILE
+            if not os.path.exists(cache_path):
+                raise RuntimeError(f'Could not fetch {label} and no cache exists: {e}')
+            print(f'Could not reach server, using cached {label}. ({e})')
+
+
+def ensure_word_lists():
+    '''
+    Ensures both word list caches are fresh.
+    Returns (answers_path, valid_words_path).
+    '''
+    _fetch_if_stale(ANSWERS_URL, ANSWERS_FILE, 'answer list')
+    _fetch_if_stale(WORDS_URL,   WORDS_FILE,   'valid words')
+    return ANSWERS_FILE, WORDS_FILE
 
 
 def check_input(user_input, prev_guess, dictionary):
@@ -108,9 +109,10 @@ def main():
     - Random word selected from the cached word list
     - Colour-coded feedback: Green (correct), Orange (wrong position), Red (absent)
     '''
-    word_file  = ensure_word_list()
-    dictionary = ScrabbleDict(5, word_file)
-    word       = random.choice(list(dictionary.dictionary.keys()))
+    answers_file, words_file = ensure_word_lists()
+    dictionary   = ScrabbleDict(5, words_file)   # full list for validation
+    answers_dict = ScrabbleDict(5, answers_file)  # common words for target
+    word         = random.choice(list(answers_dict.dictionary.keys()))
     attempts   = 1
     prev_guess = []
 

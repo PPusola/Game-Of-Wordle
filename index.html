@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wordle 175</title>
+  <title>Game of Wordle</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -333,7 +333,7 @@
 <body>
 
 <header>
-  <h1>Wordle 175</h1>
+  <h1>Game of Wordle</h1>
   <button id="how-to-btn" title="How to play">?</button>
 </header>
 
@@ -632,7 +632,7 @@ function newGame() {
   gameOver      = false;
   animating     = false;
   Object.keys(keyState).forEach(k => delete keyState[k]);
-  targetWord = wordList[Math.floor(Math.random() * wordList.length)];
+  targetWord = answerList[Math.floor(Math.random() * answerList.length)];
   buildBoard();
   buildKeyboard();
 }
@@ -649,9 +649,11 @@ function closeHowTo() {
 }
 
 // ── Word list ──────────────────────────────────────────────────────────────────
-// Primary source: tabatkins/wordle-list (~14k valid Wordle words, CORS-enabled).
-// Fallback: built-in list used when the fetch fails (e.g. offline / file://).
-const WORDS_URL = 'https://raw.githubusercontent.com/tabatkins/wordle-list/main/words';
+// Two separate lists:
+//   ANSWERS_URL — ~2300 common everyday words (NYT Wordle answers). Used to pick the target.
+//   WORDS_URL   — ~14k valid guess words. Used to validate that a guess is a real word.
+const ANSWERS_URL = 'https://raw.githubusercontent.com/cfreshman/wordle-nyt-answers-alphabetical/main/answers.txt';
+const WORDS_URL   = 'https://raw.githubusercontent.com/tabatkins/wordle-list/main/words';
 
 const FALLBACK = [
   'about','actor','admit','adult','after','again','agent','agree','ahead','alarm',
@@ -717,21 +719,35 @@ const FALLBACK = [
   'worst','worth','would','wound','wrath','wrist','wrong','yield','young','youth',
 ].filter(w => w.length === COLS);
 
+function parseWordList(text) {
+  return text
+    .split('\n')
+    .map(w => w.trim().toLowerCase())
+    .filter(w => w.length === COLS && /^[a-z]+$/.test(w));
+}
+
+async function fetchWords(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return parseWordList(await res.text());
+}
+
 async function loadWords() {
-  try {
-    const res = await fetch(WORDS_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text  = await res.text();
-    const words = text
-      .split('\n')
-      .map(w => w.trim().toLowerCase())
-      .filter(w => w.length === COLS && /^[a-z]+$/.test(w));
-    if (words.length < 500) throw new Error('too few words');
-    return words;
-  } catch (err) {
-    console.warn('Word list fetch failed, using fallback:', err.message);
-    return FALLBACK;
-  }
+  // answerList — common words used to pick the target
+  // wordList   — full valid-guess list used for input validation
+  let answers = [];
+  let valid   = [];
+
+  try { answers = await fetchWords(ANSWERS_URL); } catch (e) { console.warn('Answers fetch failed:', e.message); }
+  try { valid   = await fetchWords(WORDS_URL);   } catch (e) { console.warn('Valid words fetch failed:', e.message); }
+
+  // Fallback: use built-in list for both if fetches failed
+  if (answers.length < 100) answers = FALLBACK;
+  if (valid.length   < 100) valid   = FALLBACK;
+
+  // Merge so any answer word is also a valid guess
+  const validSet = new Set([...valid, ...answers]);
+  return { answers, valid: [...validSet] };
 }
 
 // ── Helper ─────────────────────────────────────────────────────────────────────
@@ -740,11 +756,15 @@ function getTileFront(r, c) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
+let answerList = [];
+
 async function init() {
   buildBoard();
   buildKeyboard();
-  wordList   = await loadWords();
-  targetWord = wordList[Math.floor(Math.random() * wordList.length)];
+  const words = await loadWords();
+  wordList   = words.valid;
+  answerList = words.answers;
+  targetWord = answerList[Math.floor(Math.random() * answerList.length)];
 }
 
 init();
